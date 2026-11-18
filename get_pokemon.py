@@ -22,7 +22,7 @@ ROSTER_URLS = [
     "https://www.serebii.net/pokemonchampions/transferonly.shtml",
 ]
 
-OUTPUT_JSON = "pokemon_database.json"
+OUTPUT_JSON = "database/pokemon.json"
 OUTPUT_TXT = "pokemon_list.txt"
 
 REQUEST_DELAY = 0.25
@@ -2778,13 +2778,13 @@ def save_results(analysed, final_names):
             indent=2,
         )
 
-    with open(
-        OUTPUT_TXT,
-        "w",
-        encoding="utf-8",
-    ) as file:
-        for name in final_names:
-            file.write(name + "\n")
+    #with open(
+    #    OUTPUT_TXT,
+    #    "w",
+    #    encoding="utf-8",
+    #) as file:
+    #    for name in final_names:
+    #        file.write(name + "\n")
 
 
 # ============================================================

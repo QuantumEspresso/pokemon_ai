@@ -13,7 +13,7 @@ from tqdm import tqdm
 DEBUG = False
 
 MOVES_LIST_URL = "https://www.serebii.net/pokemonchampions/moves.shtml"
-OUTPUT_JSON = "moves_database.json"
+OUTPUT_JSON = "database/moves.json"
 
 REQUEST_DELAY = 0.15
 TIMEOUT = 20

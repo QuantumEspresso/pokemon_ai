@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 # Configuration
 ITEMS_LIST_URL = "https://www.serebii.net/pokemonchampions/items.shtml"
-OUTPUT_FILE = "item_database.json"
+OUTPUT_FILE = "database/items.json"
 
 DEBUG = False
 

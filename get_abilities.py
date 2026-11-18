@@ -20,7 +20,7 @@ DEBUG = False
 
 POKEDEX_URL = "https://www.serebii.net/pokedex-champions/"
 
-OUTPUT_JSON = "abilities_database.json"
+OUTPUT_JSON = "database/abilities.json"
 
 REQUEST_DELAY = 0.2
 REQUEST_TIMEOUT = 30
