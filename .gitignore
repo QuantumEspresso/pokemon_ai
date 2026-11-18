@@ -1,0 +1,5 @@
+# Ignore personal notes
+loose_notes.md
+
+# Ignore database directory
+database/
