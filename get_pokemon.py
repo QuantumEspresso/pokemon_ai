@@ -829,24 +829,155 @@ def extract_type_forms(soup, species_name, alternate_forms):
 # ABILITIES — WYKRYWANIE FORM
 # ============================================================
 
+def expand_grouped_ability_label(label):
+    """
+    Rozdziela grupowe etykiety form z nagłówków Abilities.
+
+    Przykład:
+        Green & Blue Plumage
+    daje:
+        Green Plumage
+        Blue Plumage
+
+        Yellow & White Plumage
+    daje:
+        Yellow Plumage
+        White Plumage
+
+    Zwykłe, niegrupowane etykiety pozostają bez zmian.
+    """
+
+    label = normalize(label)
+
+    parts = re.split(
+        r"\s*(?:&|\band\b|,|/)\s*",
+        label,
+        flags=re.I,
+    )
+
+    parts = [
+        normalize(part)
+        for part in parts
+        if normalize(part)
+    ]
+
+    if len(parts) < 2:
+        return [label]
+
+    # Ostatnia część może zawierać wspólny człon,
+    # np. "Blue Plumage" w "Green & Blue Plumage".
+    last_tokens = parts[-1].split()
+
+    if len(last_tokens) > 1:
+        shared_suffix = " ".join(last_tokens[1:])
+
+        expanded = []
+
+        for part in parts[:-1]:
+            expanded.append(
+                f"{part} {shared_suffix}"
+            )
+
+        expanded.append(parts[-1])
+
+        return unique(expanded)
+
+    return unique(parts)
+
+
+def resolve_grouped_ability_targets(
+    label,
+    species_name,
+    forms,
+    base_label,
+):
+    """
+    Rozpoznaje pojedyncze i grupowe oznaczenia form.
+
+    Obsługuje:
+        Male
+        Female
+        Green & Blue
+        Green & Blue Plumage
+        Yellow & White Plumage
+    """
+
+    targets = []
+
+    expanded_labels = expand_grouped_ability_label(label)
+
+    for expanded_label in expanded_labels:
+
+        target = resolve_form_label(
+            expanded_label,
+            species_name,
+            forms,
+            base_label,
+        )
+
+        if target is not None:
+            targets.append(target)
+            continue
+
+        # Obsługa skróconych etykiet, np. "Green",
+        # które odpowiadają formie "Green Plumage".
+        label_tokens = set(
+            form_key(expanded_label, species_name).split()
+        )
+
+        if not label_tokens:
+            continue
+
+        for form in forms:
+            form_tokens = set(
+                form_key(form, species_name).split()
+            )
+
+            if label_tokens.issubset(form_tokens):
+                targets.append(form)
+
+    return unique(targets)
+
+
 def extract_ability_forms(soup, species_name, alternate_forms):
     found = []
 
+    def add_matching_forms(label):
+        """
+        Dodaje konkretne alternate_forms pasujące do etykiety.
+        Obsługuje zarówno pojedyncze, jak i grupowe nazwy form.
+        """
+
+        expanded_labels = expand_grouped_ability_label(label)
+
+        for expanded_label in expanded_labels:
+            for form in alternate_forms:
+                if form_matches(
+                    expanded_label,
+                    form,
+                    species_name,
+                ):
+                    found.append(form)
+
+    # --------------------------------------------------------
+    # NAGŁÓWKI TYPU:
+    # Green & Blue Plumage Abilities
+    # --------------------------------------------------------
+
     labels = get_heading_labels(
         soup,
-        r"(.+?)\s+Abilities:",
+        r"(.+?)\s+Abilities\s*:?",
     )
 
     for label in labels:
         if label.casefold() == species_name.casefold():
             continue
 
-        if label_matches_any_form(
-            label,
-            alternate_forms,
-            species_name,
-        ):
-            found.append(label)
+        add_matching_forms(label)
+
+    # --------------------------------------------------------
+    # ADNOTACJE W GŁÓWNEJ KOMÓRCE ABILITIES
+    # --------------------------------------------------------
 
     for node in soup.find_all(string=True):
         text = normalize(node)
@@ -888,12 +1019,7 @@ def extract_ability_forms(soup, species_name, alternate_forms):
                 if label.casefold() == species_name.casefold():
                     continue
 
-                if label_matches_any_form(
-                    label,
-                    alternate_forms,
-                    species_name,
-                ):
-                    found.append(label)
+                add_matching_forms(label)
 
             break
 
@@ -1082,12 +1208,13 @@ def get_stat_numbers(row):
 # STATYSTYKI BAZOWE
 # ============================================================
 
+
 def extract_base_stats(soup, species_name, forms, base_label):
     """
-    Zwraca statystyki bazowe dla form.
+    Returns base stats for all forms.
 
-    Formy płciowe bez własnego bloku Stats
-    dziedziczą statystyki formy bazowej.
+    Forms with their own Stats block keep their individual stats.
+    Forms without a dedicated Stats block inherit base stats.
     """
 
     result = {}
@@ -1186,7 +1313,20 @@ def extract_base_stats(soup, species_name, forms, base_label):
             if form not in result:
                 result[form] = dict(base_stats)
 
+    # --------------------------------------------------------
+    # DZIEDZICZENIE STATYSTYK PRZEZ POZOSTAŁE FORMY
+    # --------------------------------------------------------
+
+    # Any form without its own Stats entry inherits base stats.
+    # Existing form-specific stats are never overwritten.
+
+    if base_stats:
+        for form in forms:
+            if form not in result:
+                result[form] = dict(base_stats)
+
     return result
+
 
 
 # ============================================================
@@ -1572,19 +1712,37 @@ def extract_types(soup, species_name, forms, base_label):
 
 def get_main_abilities_cell(soup):
     """
-    Zachowana funkcja pomocnicza.
-    Zwraca pierwszą główną komórkę Abilities.
+    Zwraca komórkę zawierającą główny blok Abilities.
     """
 
     for cell in soup.find_all("td", class_="fooleft"):
-        bold = cell.find(["b", "strong"])
+        for bold in cell.find_all(["b", "strong"]):
+            if re.fullmatch(
+                r"Abilities\s*:?",
+                get_text(bold),
+                flags=re.I,
+            ):
+                return cell
 
-        if bold and re.search(
-            r"\bAbilities\b",
+    return None
+
+
+def get_main_abilities_heading(cell):
+    """
+    Zwraca wyłącznie główny nagłówek Abilities,
+    a nie nagłówki Female Abilities czy form.
+    """
+
+    if cell is None:
+        return None
+
+    for bold in cell.find_all(["b", "strong"]):
+        if re.fullmatch(
+            r"Abilities\s*:?",
             get_text(bold),
             flags=re.I,
         ):
-            return cell
+            return bold
 
     return None
 
@@ -1614,10 +1772,63 @@ def get_ability_links(cell):
     return result
 
 
+def get_ability_links_in_block(cell, heading):
+    """
+    Zwraca abilities znajdujące się po wskazanym nagłówku,
+    ale przed następnym nagłówkiem Abilities.
+    """
+
+    if cell is None or heading is None:
+        return []
+
+    result = []
+    active = False
+
+    for element in cell.descendants:
+
+        if element is heading:
+            active = True
+            continue
+
+        if not active:
+            continue
+
+        # Następny nagłówek Abilities kończy aktualny blok.
+        if getattr(element, "name", None) in ("b", "strong"):
+            label = get_text(element)
+
+            if re.fullmatch(
+                r".*?\bAbilities\s*:?",
+                label,
+                flags=re.I,
+            ):
+                break
+
+        if getattr(element, "name", None) != "a":
+            continue
+
+        href = element.get("href", "").casefold()
+
+        if "ability" not in href:
+            continue
+
+        if get_text(element):
+            result.append(element)
+
+    return result
+
+
 def extract_main_ability_names(cell):
+    heading = get_main_abilities_heading(cell)
+
+    links = get_ability_links_in_block(
+        cell,
+        heading,
+    )
+
     return unique([
         get_text(link)
-        for link in get_ability_links(cell)
+        for link in links
     ])
 
 
@@ -1715,30 +1926,27 @@ def ability_annotation_target(
 
 def extract_ability_cells(soup):
     """
-    Zbiera wszystkie komórki zawierające bloki Abilities.
-
-    Dzięki temu nie pomijamy bloków znajdujących się
-    w sekcjach Mega ani osobnych list form.
+    Zwraca osobny blok dla każdego nagłówka Abilities.
     """
 
     result = []
-    seen = set()
 
     for cell in soup.find_all(["td", "th"]):
-        label = get_ability_block_label(cell)
+        for heading in cell.find_all(["b", "strong"]):
+            label = get_text(heading)
 
-        if not label:
-            continue
+            if not re.fullmatch(
+                r".*?\bAbilities\s*:?",
+                label,
+                flags=re.I,
+            ):
+                continue
 
-        if id(cell) in seen:
-            continue
-
-        seen.add(id(cell))
-
-        result.append({
-            "cell": cell,
-            "label": label,
-        })
+            result.append({
+                "cell": cell,
+                "label": label,
+                "heading": heading,
+            })
 
     return result
 
@@ -1771,12 +1979,10 @@ def extract_separate_ability_lists(
     base_label,
 ):
     """
-    Odczytuje osobne listy abilities z komórek opisowych.
+    Odczytuje osobne, kompletne listy abilities dla form.
 
-    Ważne:
-    - pobiera linki dopiero PO nagłówku formy,
-    - ignoruje abilities opisane przed tym nagłówkiem,
-    - nie łączy list różnych form.
+    Każdy blok kończy się na następnym nagłówku Abilities.
+    Grupowe nagłówki przypisują tę samą listę do wskazanych form.
     """
 
     result = {}
@@ -1784,6 +1990,7 @@ def extract_separate_ability_lists(
     for block in extract_ability_cells(soup):
         cell = block["cell"]
         label = block["label"]
+        heading = block["heading"]
 
         label_without_colon = normalize(
             re.sub(r":\s*$", "", label)
@@ -1799,68 +2006,35 @@ def extract_separate_ability_lists(
             flags=re.I,
         ).strip()
 
-        target = resolve_form_label(
+        targets = resolve_grouped_ability_targets(
             prefix,
             species_name,
             forms,
             base_label,
         )
 
-        if target is None:
+        if not targets:
             continue
 
-        # Znajdź rzeczywisty element nagłówka,
-        # np. <b>Female Abilities</b>.
-        heading = None
+        links = get_ability_links_in_block(
+            cell,
+            heading,
+        )
 
-        for bold in cell.find_all(["b", "strong"]):
-            bold_text = normalize(get_text(bold))
+        names = unique([
+            get_text(link)
+            for link in links
+        ])
 
-            if re.search(
-                r"\bAbilities\b",
-                bold_text,
-                flags=re.I,
-            ):
-                heading = bold
-                break
-
-        # Bez rzeczywistego nagłówka nie próbujemy
-        # wyciągać listy z całej komórki.
-        if heading is None:
+        if not names:
             continue
 
-        # Zbieramy wyłącznie linki znajdujące się
-        # za nagłówkiem, a nie przed nim.
-        names = []
-        after_heading = False
-
-        for element in cell.descendants:
-
-            if element is heading:
-                after_heading = True
-                continue
-
-            if not after_heading:
-                continue
-
-            if getattr(element, "name", None) != "a":
-                continue
-
-            href = element.get("href", "").casefold()
-
-            if "ability" not in href:
-                continue
-
-            name = get_text(element)
-
-            if name:
-                names.append(name)
-
-        if names:
-            # Pełna lista zastępuje poprzednią listę formy.
-            result[target] = unique(names)
+        for target in targets:
+            # Osobny blok jest kompletną listą formy.
+            result[target] = list(names)
 
     return result
+
 
 
 def extract_annotated_ability_lists(
@@ -1870,90 +2044,93 @@ def extract_annotated_ability_lists(
     base_label,
 ):
     """
-    Każda grupa abilities zakończona adnotacją należy
-    w całości do wskazanej formy.
+    Separates shared abilities from form-specific ability groups.
 
-    Przykład:
-        Ability A - Ability B (Raichu)
-        Ability C (Alola Form)
-
-    oznacza:
-        forma bazowa: Ability A, Ability B
-        Alola: Ability C
-
-    Nie ma dziedziczenia ani współdzielenia abilities
-    pomiędzy grupami.
+    Exact (Male) and (Female) annotations close a complete
+    ability group. Other annotations, such as Male Hidden Ability,
+    apply only to the ability immediately before them.
     """
 
-    result = {}
+    shared = []
+    specific = {}
 
     if main_cell is None:
-        return result
+        return shared, specific
 
-    pending = []
+    heading = get_main_abilities_heading(main_cell)
 
-    for element in main_cell.descendants:
+    links = get_ability_links_in_block(
+        main_cell,
+        heading,
+    )
 
-        # Link do konkretnej umiejętności.
-        if getattr(element, "name", None) == "a":
-            href = element.get("href", "").casefold()
+    pending_group = []
 
-            if "ability" in href:
-                name = get_text(element)
+    for link in links:
+        name = get_text(link)
 
-                if name:
-                    pending.append(name)
-
+        if not name:
             continue
 
-        # Szukamy adnotacji poza linkami abilities.
-        if isinstance(element, NavigableString):
+        pending_group.append(name)
 
-            if element.find_parent("a") is not None:
-                continue
+        annotation = get_ability_annotation(link)
 
-            text = normalize(element)
+        if not annotation:
+            continue
 
-            if not text:
-                continue
+        annotation_key = normalize(annotation).casefold()
 
-            annotations = re.findall(
-                r"\(([^()]*)\)",
-                text,
+        # Indeedee-style grouped gender annotations:
+        # all abilities since the previous gender marker
+        # belong to the gender named by this annotation.
+        if annotation_key in ("male", "female"):
+            targets = resolve_grouped_ability_targets(
+                annotation,
+                species_name,
+                forms,
+                base_label,
             )
 
-            for annotation in annotations:
-
-                if not pending:
-                    continue
-
-                target = resolve_form_label(
-                    annotation,
-                    species_name,
-                    forms,
-                    base_label,
+            for target in targets:
+                specific.setdefault(target, []).extend(
+                    pending_group
                 )
 
-                if target is None:
-                    target = base_label
+            pending_group = []
+            continue
 
-                result.setdefault(target, []).extend(
-                    pending
-                )
-
-                pending = []
-
-    # Jeśli pozostała grupa bez adnotacji,
-    # przypisujemy ją do formy bazowej.
-    if pending:
-        result.setdefault(base_label, []).extend(
-            pending
+        # Meowstic-style annotations:
+        # only the ability immediately before the annotation
+        # belongs to the specified form.
+        targets = resolve_grouped_ability_targets(
+            annotation,
+            species_name,
+            forms,
+            base_label,
         )
 
-    return {
-        key: unique(value)
-        for key, value in result.items()
+        if targets:
+            for target in targets:
+                specific.setdefault(target, []).append(name)
+
+            # Earlier unannotated abilities remain shared.
+            shared.extend(pending_group[:-1])
+            pending_group = []
+
+        else:
+            # Unknown annotations do not discard the abilities.
+            shared.extend(pending_group)
+            pending_group = []
+
+    # Any remaining unannotated abilities are shared.
+    shared.extend(pending_group)
+
+    return unique(shared), {
+        form: unique(names)
+        for form, names in specific.items()
     }
+
 
 
 def extract_abilities(
@@ -1988,7 +2165,7 @@ def extract_abilities(
     # GRUPY Z ADNOTACJAMI FORM
     # --------------------------------------------------------
 
-    annotated = extract_annotated_ability_lists(
+    shared_abilities, annotated = extract_annotated_ability_lists(
         main_cell,
         species_name,
         forms,
@@ -2002,15 +2179,18 @@ def extract_abilities(
 
     if has_separate_form_groups:
 
-        # Każda forma otrzymuje wyłącznie własną listę.
+        # Wspólne abilities trafiają do każdej formy.
+        # Adnotowane abilities trafiają wyłącznie do wskazanej formy.
         result = {
-            form: list(annotated.get(form, []))
+            form: unique(
+                shared_abilities + annotated.get(form, [])
+            )
             for form in unique([base_label] + list(forms))
         }
 
     else:
 
-        # Dotychczasowe zachowanie dla zwykłych przypadków.
+        # Dotychczasowe zachowanie dla zwykłych Pokémonów.
         result[base_label] = list(base_abilities)
 
         for form in forms:
@@ -2394,6 +2574,13 @@ def analyse_pokemon(pokemon):
         species_name,
     )
 
+    # Serebii may explicitly list the base form under
+    # Alternate Forms using exactly the species name.
+    explicit_base_form = any(
+        form.casefold() == species_name.casefold()
+        for form in alternate_forms
+    )
+
     evolutionary_forms = extract_evolutionary_forms(
         soup,
         species_name,
@@ -2595,6 +2782,37 @@ def analyse_pokemon(pokemon):
         base_label,
     )
 
+    # --------------------------------------------------------
+    # CZY ISTNIEJE FORMA ODPOWIADAJĄCA STATYSTYKOM BAZOWYM?
+    # --------------------------------------------------------
+
+    base_stats = stats.get(base_label)
+
+    comparable_forms = [
+        form
+        for form in all_forms
+        if not is_mega_form(form)
+    ]
+
+    matching_base_form = any(
+        stats.get(form) == base_stats
+        for form in comparable_forms
+        if stats.get(form) is not None and base_stats is not None
+    )
+
+    # Nie zapisujemy gołego gatunku, jeśli:
+    # - nie wykryto konkretnej formy bazowej,
+    # - istnieją formy alternatywne,
+    # - żadna z nich nie ma statystyk formy bazowej.
+    #
+    # Jeśli nie mamy danych pozwalających na porównanie,
+    # zachowujemy dotychczasowe zachowanie.
+    include_base_entry = (
+        base_form is not None
+        or explicit_base_form
+        or len(alternate_forms) <= 1
+    )
+
     abilities = extract_abilities(
         soup,
         species_name,
@@ -2613,16 +2831,12 @@ def analyse_pokemon(pokemon):
     # OSOBNY REKORD DLA KAŻDEJ FORMY
     # --------------------------------------------------------
 
-    # Nie dodajemy osobnego wpisu z samą nazwą gatunku,
-    # jeśli Male i Female zastępują formę bazową.
-    if gender_forms_replace_base:
-        entry_forms = unique(
-            [base_label] + all_forms
-        )
-    else:
-        entry_forms = unique(
-            [base_label] + all_forms
-        )
+    # Dodajemy formę bazową tylko wtedy, gdy istnieje
+    # jej odpowiednik albo nie ma podstaw do jej odrzucenia.
+    entry_forms = unique(
+        ([base_label] if include_base_entry else [])
+        + all_forms
+    )
 
     entries = []
 
@@ -2644,6 +2858,7 @@ def analyse_pokemon(pokemon):
 
         "forms": unique(kept_forms),
         "base_form": base_form,
+        "include_base_entry": include_base_entry,
 
         "gender_forms_replace_base": gender_forms_replace_base,
 
@@ -2714,7 +2929,7 @@ def build_final_list(analysed):
         species_name = pokemon["name"]
         base_form = pokemon.get("base_form")
 
-        # FORMA BAZOWA
+                # FORMA BAZOWA
         if base_form:
             add(
                 format_form_name(
@@ -2723,7 +2938,7 @@ def build_final_list(analysed):
                 )
             )
 
-        elif not pokemon.get("gender_forms_replace_base", False):
+        elif pokemon.get("include_base_entry", True):
             add(species_name)
 
         # FORMY MECHANICZNIE ODMIENNE
@@ -2875,6 +3090,7 @@ def main():
                 "dex_number": pokemon.get("dex_number"),
                 "forms": [],
                 "base_form": None,
+                "include_base_entry": False,
                 "gender_forms_replace_base": False,
                 "has_mega_evolution": False,
                 "discarded_forms": [],
