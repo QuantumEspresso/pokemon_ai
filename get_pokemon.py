@@ -2760,6 +2760,22 @@ def analyse_pokemon(pokemon):
     kept_forms = unique(kept_forms)
 
     # --------------------------------------------------------
+    # FALLBACK — BRAK ZACHOWANYCH FORM ALTERNATYWNYCH
+    # --------------------------------------------------------
+
+    has_non_mega_forms = any(
+        not is_mega_form(form)
+        for form in kept_forms
+    )
+
+    if not has_non_mega_forms and base_form is None:
+        base_form = species_name
+
+        diagnostics[species_name] = [
+            "forma bazowa — brak zachowanych form alternatywnych"
+        ]
+        
+    # --------------------------------------------------------
     # EKSTRAKCJA DANYCH
     # --------------------------------------------------------
 
@@ -2837,6 +2853,13 @@ def analyse_pokemon(pokemon):
         ([base_label] if include_base_entry else [])
         + all_forms
     )
+
+    # If all alternate forms were rejected and no base form
+    # was selected, keep the default species entry.
+    if not entry_forms:
+        base_label = species_name
+        include_base_entry = True
+        entry_forms = [species_name]
 
     entries = []
 
