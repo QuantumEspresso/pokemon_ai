@@ -3,6 +3,7 @@ import json
 import re
 import time
 from urllib.parse import urljoin
+from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
@@ -12,8 +13,11 @@ from tqdm import tqdm
 # Configuration
 DEBUG = False
 
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DATABASE_DIR = PROJECT_DIR / "database"
+
 MOVES_LIST_URL = "https://www.serebii.net/pokemonchampions/moves.shtml"
-OUTPUT_JSON = "database/moves.json"
+OUTPUT_JSON = DATABASE_DIR / "moves.json"
 
 REQUEST_DELAY = 0.15
 TIMEOUT = 20

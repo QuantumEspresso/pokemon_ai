@@ -28,7 +28,10 @@ API_BASE = "https://championsbattledata.com/api"
 INFOVGC_BASE = "https://infovgc.com"
 INFOVGC_SOURCE = "infovgc"
 
-OUTPUT_FILE = Path("database/meta.json")
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DATABASE_DIR = PROJECT_DIR / "database"
+
+OUTPUT_FILE = DATABASE_DIR / "meta.json"
 
 FORMATS = ("Doubles", "Singles")
 

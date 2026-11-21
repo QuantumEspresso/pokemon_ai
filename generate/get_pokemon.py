@@ -4,12 +4,12 @@ import re
 import time
 import html
 import builtins
+from pathlib import Path
 from collections import OrderedDict
 from urllib.parse import urljoin, urldefrag
 
 import requests
 from bs4 import BeautifulSoup, NavigableString
-
 
 # ============================================================
 # KONFIGURACJA
@@ -22,8 +22,11 @@ ROSTER_URLS = [
     "https://www.serebii.net/pokemonchampions/transferonly.shtml",
 ]
 
-OUTPUT_JSON = "database/pokemon.json"
-OUTPUT_TXT = "pokemon_list.txt"
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DATABASE_DIR = PROJECT_DIR / "database"
+
+OUTPUT_JSON = DATABASE_DIR / "pokemon.json"
+OUTPUT_TXT = DATABASE_DIR / "pokemon_list.txt"
 
 REQUEST_DELAY = 0.25
 REQUEST_TIMEOUT = 30

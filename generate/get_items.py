@@ -11,8 +11,12 @@ from tqdm import tqdm
 
 
 # Configuration
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DATABASE_DIR = PROJECT_DIR / "database"
+
 ITEMS_LIST_URL = "https://www.serebii.net/pokemonchampions/items.shtml"
-OUTPUT_FILE = "database/items.json"
+OUTPUT_FILE = DATABASE_DIR / "items.json"
 
 DEBUG = False
 

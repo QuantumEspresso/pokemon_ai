@@ -5,6 +5,7 @@ import sys
 import time
 import builtins
 
+from pathlib import Path
 from collections import OrderedDict
 from urllib.parse import urljoin, urldefrag
 
@@ -20,7 +21,10 @@ DEBUG = False
 
 POKEDEX_URL = "https://www.serebii.net/pokedex-champions/"
 
-OUTPUT_JSON = "database/abilities.json"
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DATABASE_DIR = PROJECT_DIR / "database"
+
+OUTPUT_JSON = DATABASE_DIR / "abilities.json"
 
 REQUEST_DELAY = 0.2
 REQUEST_TIMEOUT = 30

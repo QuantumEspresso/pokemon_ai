@@ -18,7 +18,10 @@ from tqdm import tqdm
 
 BASE_URL = "https://www.vizukan.app"
 
-OUTPUT_FILE = Path("database/rulesets.json")
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DATABASE_DIR = PROJECT_DIR / "database"
+
+OUTPUT_FILE = DATABASE_DIR / "rulesets.json"
 
 DEBUG = False
 REQUEST_DELAY = 0.5
